@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+
+    <meta charset="UTF-8">
+
+    <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1.0"
+    >
+
+    <title>SMS Delivery Monitor</title>
+
+    <link
+        rel="stylesheet"
+        href="{{ url_for('static', filename='style.css') }}"
+    >
+
+</head>
+
+
+<body>
+
+<div class="app">
+
+    <!-- ========================================= -->
+    <!-- SIDEBAR -->
+    <!-- ========================================= -->
+
+    <aside class="sidebar">
+
+        <div class="logo">
+            SMS Monitor
+        </div>
+
+
+        <button
+            id="overviewButton"
+            class="nav-button active"
+            onclick="showOverview()"
+        >
+
+            📊 Overview
+
+        </button>
+
+
+        <div class="section-title">
+            EXTENSIONS
+        </div>
+
+
+        <div id="extensions">
+
+            <div class="sidebar-loading">
+                Loading...
+            </div>
+
+        </div>
+
+    </aside>
+
+
+    <!-- ========================================= -->
+    <!-- MAIN -->
+    <!-- ========================================= -->
+
+    <main class="main">
+
+
+        <!-- HEADER -->
+
+        <header class="header">
+
+            <div>
+
+                <h1 id="page-title">
+                    SMS Delivery Monitor
+                </h1>
+
+
+                <div id="page-subtitle">
+                    Company overview
+                </div>
+
+            </div>
+
+
+            <button
+                class="refresh"
+                onclick="refreshCurrentView()"
+            >
+
+                🔄 Refresh
+
+            </button>
+
+        </header>
+
+
+        <!-- CONTENT -->
+
+        <section id="content">
+
+            <div class="loading">
+
+                Loading...
+
+            </div>
+
+        </section>
+
+
+    </main>
+
+</div>
+
+
+<script
+    src="{{ url_for('static', filename='dashboard.js') }}"
+></script>
+
+
+</body>
+
+</html>
