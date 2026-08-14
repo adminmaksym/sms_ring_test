@@ -1,21 +1,14 @@
 from flask import Flask, jsonify, render_template, request, send_file
 import math
 import sqlite3
-import threading
-import time
 from pathlib import Path
-from datetime import datetime, timedelta, timezone
 from export import get_messages_by_extensions, generate_excel_from_messages
-from sync import sync_all
-
-BASE_DIR = Path(__file__).resolve().parent
-DB_FILE = BASE_DIR / "sms_monitor.db"
 
 app = Flask(__name__)
 
 def get_connection():
     conn = sqlite3.connect(
-        DB_FILE,
+        "sms_monitor.db",
         check_same_thread=False
     )
 
@@ -316,6 +309,123 @@ def api_overview():
 
 
 # =========================================================
+# EXTENSION OVERVIEW
+# =========================================================
+
+@app.route("/api/extensions/<int:extension_id>/overview")
+def api_extension_overview(extension_id):
+
+    conn = get_connection()
+
+    extension = conn.execute("""
+        SELECT extension_id, extension_number, name
+        FROM extensions
+        WHERE extension_id = ?
+    """, (extension_id,)).fetchone()
+
+    if not extension:
+        conn.close()
+        return jsonify({"error": "Extension not found"}), 404
+
+    date_from = request.args.get("dateFrom")
+    date_to = request.args.get("dateTo")
+    contact = request.args.get("contact")
+
+    where_clauses = ["extension_id = ?"]
+    params = [extension_id]
+
+    if date_from:
+        where_clauses.append("date(creation_time) >= date(?)")
+        params.append(date_from)
+
+    if date_to:
+        where_clauses.append("date(creation_time) <= date(?)")
+        params.append(date_to)
+
+    if contact:
+        where_clauses.append("(from_number = ? OR to_number = ?)")
+        params.extend([contact, contact])
+
+    where_sql = " AND ".join(where_clauses)
+
+    extension_number = extension["extension_number"]
+    partner_case = """
+        CASE
+            WHEN from_number IS NOT NULL AND from_number != '' AND from_number != ? THEN from_number
+            WHEN to_number IS NOT NULL AND to_number != '' AND to_number != ? THEN to_number
+            WHEN from_number IS NOT NULL AND from_number != '' THEN from_number
+            ELSE to_number
+        END
+    """
+
+    summary = conn.execute(f"""
+        SELECT
+            COUNT(*) AS total,
+            SUM(CASE WHEN status = 'Delivered' THEN 1 ELSE 0 END) AS delivered,
+            SUM(CASE WHEN status IN ('DeliveryFailed', 'SendingFailed') THEN 1 ELSE 0 END) AS failed,
+            SUM(CASE WHEN status NOT IN ('Delivered', 'DeliveryFailed', 'SendingFailed') OR status IS NULL THEN 1 ELSE 0 END) AS received
+        FROM messages
+        WHERE {where_sql}
+    """, params).fetchone()
+
+    total = summary["total"] or 0
+    delivered = summary["delivered"] or 0
+    failed = summary["failed"] or 0
+    received = summary["received"] or 0
+
+    rate = round(delivered / (delivered + failed) * 100, 1) if (delivered + failed) > 0 else 0
+
+    unique_chats = conn.execute(f"""
+        SELECT COUNT(DISTINCT
+            {partner_case}
+        ) AS unique_chats
+        FROM messages
+        WHERE {where_sql}
+    """, [extension_number, extension_number] + params).fetchone()["unique_chats"] or 0
+
+    number_rows = conn.execute(f"""
+        SELECT
+            {partner_case} AS number,
+            COUNT(*) AS total,
+            SUM(CASE WHEN status = 'Delivered' THEN 1 ELSE 0 END) AS delivered,
+            SUM(CASE WHEN status IN ('DeliveryFailed', 'SendingFailed') THEN 1 ELSE 0 END) AS failed,
+            SUM(CASE WHEN status NOT IN ('Delivered', 'DeliveryFailed', 'SendingFailed') OR status IS NULL THEN 1 ELSE 0 END) AS received
+        FROM messages
+        WHERE {where_sql}
+        GROUP BY number
+        ORDER BY total DESC, number ASC
+        LIMIT 20
+    """, [extension_number, extension_number] + params).fetchall()
+
+    numbers = []
+    for row in number_rows:
+        numbers.append({
+            "number": row["number"] or "Unknown",
+            "total": row["total"] or 0,
+            "received": row["received"] or 0,
+            "delivered": row["delivered"] or 0,
+            "failed": row["failed"] or 0,
+        })
+
+    conn.close()
+
+    return jsonify({
+        "extension": {
+            "id": extension["extension_id"],
+            "extensionNumber": extension["extension_number"],
+            "name": extension["name"]
+        },
+        "total": total,
+        "delivered": delivered,
+        "failed": failed,
+        "received": received,
+        "deliveryRate": rate,
+        "uniqueChats": unique_chats,
+        "numbers": numbers
+    })
+
+
+# =========================================================
 # CHART DATA
 # =========================================================
 
@@ -332,6 +442,14 @@ def api_chart_data():
 
     date_to = request.args.get(
         "dateTo"
+    )
+
+    extension_id = request.args.get(
+        "extensionId"
+    )
+
+    contact = request.args.get(
+        "contact"
     )
 
     # Determine grouping interval
@@ -365,10 +483,26 @@ def api_chart_data():
             strftime(?, creation_time) AS time_slot,
             COUNT(*) AS count
         FROM messages
-        WHERE status = 'sent'
+        WHERE 1=1
     """
 
     sent_params = [group_format]
+
+    if extension_id:
+        sent_query += """
+            AND extension_id = ?
+        """
+        sent_params.append(int(extension_id))
+
+    if contact:
+        sent_query += """
+            AND (from_number = ? OR to_number = ?)
+        """
+        sent_params.extend([contact, contact])
+
+    sent_query += """
+        AND status = 'sent'
+    """
 
     if date_from:
 
@@ -402,10 +536,26 @@ def api_chart_data():
             strftime(?, creation_time) AS time_slot,
             COUNT(*) AS count
         FROM messages
-        WHERE status = 'received'
+        WHERE 1=1
     """
 
     received_params = [group_format]
+
+    if extension_id:
+        received_query += """
+            AND extension_id = ?
+        """
+        received_params.append(int(extension_id))
+
+    if contact:
+        received_query += """
+            AND (from_number = ? OR to_number = ?)
+        """
+        received_params.extend([contact, contact])
+
+    received_query += """
+        AND status = 'received'
+    """
 
     if date_from:
 
@@ -526,6 +676,10 @@ def api_extension_messages(extension_id):
         "status"
     )
 
+    contact = request.args.get(
+        "contact"
+    )
+
 
     try:
 
@@ -608,6 +762,17 @@ def api_extension_messages(extension_id):
         params.append(
             status
         )
+
+    if contact:
+
+        conditions.append(
+            "(from_number = ? OR to_number = ?)"
+        )
+
+        params.extend([
+            contact,
+            contact
+        ])
 
 
     # -----------------------------------------------------
@@ -949,75 +1114,6 @@ def api_export():
 
 
 # =========================================================
-# SYNC / REFRESH
-# =========================================================
-
-@app.route("/api/refresh", methods=["POST"])
-def api_refresh():
-
-    try:
-
-        total = sync_all(manual=True)
-
-        return jsonify({
-            "success": True,
-            "messagesProcessed": total
-        })
-
-    except Exception as exc:
-
-        return jsonify({
-            "success": False,
-            "error": str(exc)
-        }), 500
-
-
-def start_hourly_sync_loop():
-
-    def worker():
-
-        while True:
-
-            try:
-
-                sync_all()
-
-            except Exception as exc:
-
-                print(
-                    f"Hourly sync failed: {exc}"
-                )
-
-            now = datetime.now(
-                timezone.utc
-            )
-
-            next_hour = (
-                now.replace(
-                    minute=0,
-                    second=0,
-                    microsecond=0
-                ) + timedelta(hours=1)
-            )
-
-            sleep_seconds = max(
-                1,
-                (next_hour - now).total_seconds()
-            )
-
-            time.sleep(
-                sleep_seconds
-            )
-
-    thread = threading.Thread(
-        target=worker,
-        daemon=True
-    )
-
-    thread.start()
-
-
-# =========================================================
 # DATABASE INFO
 # =========================================================
 
@@ -1054,8 +1150,6 @@ def database_info():
 # =========================================================
 # START
 # =========================================================
-
-start_hourly_sync_loop()
 
 if __name__ == "__main__":
 

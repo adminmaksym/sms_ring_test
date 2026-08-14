@@ -2,7 +2,6 @@ import os
 import sqlite3
 from datetime import datetime
 from io import BytesIO
-from pathlib import Path
 
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment
@@ -13,8 +12,7 @@ from openpyxl.utils import get_column_letter
 # DATABASE
 # =========================================================
 
-BASE_DIR = Path(__file__).resolve().parent
-DB_FILE = BASE_DIR / "sms_monitor.db"
+DB_FILE = "sms_monitor.db"
 
 
 def get_connection():

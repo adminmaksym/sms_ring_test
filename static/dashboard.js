@@ -14,6 +14,18 @@ let currentDateFrom = "";
 
 let currentDateTo = "";
 
+let currentContactFilter = "all";
+
+let currentSelectedContact = "";
+
+let currentReportFrom = "";
+
+let currentReportTo = "";
+
+let extensionMessagesView = false;
+
+let currentInlineMessageContact = "";
+
 
 // ======================================================
 // START
@@ -239,6 +251,18 @@ function selectExtension(
 
     currentSort = "newest";
 
+    currentContactFilter = "all";
+
+    currentSelectedContact = "";
+
+    currentReportFrom = "";
+
+    currentReportTo = "";
+
+    extensionMessagesView = false;
+
+    currentInlineMessageContact = "";
+
 
     document
         .querySelectorAll(
@@ -296,7 +320,7 @@ function selectExtension(
         `Ext. ${number}`;
 
 
-    loadMessages();
+    loadExtensionOverview();
 
 }
 
@@ -367,6 +391,526 @@ function showOverview() {
 
 }
 
+
+// ======================================================
+// LOAD EXTENSION OVERVIEW
+// ======================================================
+
+async function loadExtensionOverview() {
+
+    if (!currentExtensionId) {
+        return;
+    }
+
+    const content =
+        document.getElementById(
+            "content"
+        );
+
+    content.innerHTML = `
+
+        <div class="loading">
+            Loading extension overview...
+        </div>
+
+    `;
+
+    try {
+
+        const params =
+            new URLSearchParams();
+
+        if (currentReportFrom) {
+            params.set(
+                "dateFrom",
+                currentReportFrom
+            );
+        }
+
+        if (currentReportTo) {
+            params.set(
+                "dateTo",
+                currentReportTo
+            );
+        }
+
+        if (
+            currentContactFilter ===
+            "contact" &&
+            currentSelectedContact
+        ) {
+            params.set(
+                "contact",
+                currentSelectedContact
+            );
+        }
+
+        const response =
+            await fetch(
+                `/api/extensions/${currentExtensionId}/overview?` +
+                params.toString()
+            );
+
+        if (!response.ok) {
+            throw new Error(
+                `HTTP ${response.status}`
+            );
+        }
+
+        const data =
+            await response.json();
+
+        renderExtensionOverview(data);
+
+    } catch (error) {
+
+        console.error(
+            "Extension overview error:",
+            error
+        );
+
+        content.innerHTML = `
+
+            <div class="error-card">
+                <h2>Failed to load extension overview</h2>
+                <p>${escapeHtml(error.message)}</p>
+            </div>
+
+        `;
+
+    }
+
+}
+
+
+// ======================================================
+// RENDER EXTENSION OVERVIEW
+// ======================================================
+
+function renderExtensionOverview(data) {
+
+    const content =
+        document.getElementById(
+            "content"
+        );
+
+    const delivered =
+        Number(data.delivered || 0);
+
+    const received =
+        Number(data.received || 0);
+
+    const failed =
+        Number(data.failed || 0);
+
+    const total =
+        Number(data.total || 0);
+
+    const uniqueChats =
+        Number(data.uniqueChats || 0);
+
+    const rate =
+        Number(data.deliveryRate || 0);
+
+    const numbers =
+        data.numbers || [];
+
+    const extension =
+        getExtension(currentExtensionId) || {};
+
+    const number =
+        extension.extensionNumber ||
+        currentExtensionId;
+
+    const name =
+        extension.name ||
+        `Ext. ${number}`;
+
+    const contactOptions =
+        numbers.map(
+            item => `
+                <option value="${escapeHtml(item.number)}">
+                    ${escapeHtml(item.number)}
+                </option>
+            `
+        ).join("");
+
+    content.innerHTML = `
+
+        <div class="extension-overview">
+
+            <div class="overview-toolbar">
+
+                <div class="chat-toggle-group">
+
+                    <button
+                        class="chat-toggle ${currentContactFilter === "all" ? "active" : ""}"
+                        onclick="setContactFilter('all')"
+                    >
+                        All Chats
+                    </button>
+
+                    <button
+                        class="chat-toggle ${currentContactFilter === "contact" ? "active" : ""}"
+                        onclick="setContactFilter('contact')"
+                    >
+                        Chats with...
+                    </button>
+
+                </div>
+
+                <div class="contact-select-wrap ${currentContactFilter === "contact" ? "visible" : ""}">
+                    <select id="contactSelect" onchange="changeSelectedContact(this.value)">
+                        <option value="">Choose contact</option>
+                        ${contactOptions}
+                    </select>
+                </div>
+
+                <div class="report-panel">
+                    <input type="date" id="extensionReportFrom" value="${escapeHtml(currentReportFrom)}" />
+                    <input type="date" id="extensionReportTo" value="${escapeHtml(currentReportTo)}" />
+                    <button class="primary-button" onclick="generateExtensionReport()">
+                        Generate Report
+                    </button>
+                    <button class="primary-button" onclick="showExtensionMessages()">
+                        View messages
+                    </button>
+                </div>
+
+            </div>
+
+            <div class="kpi-cards">
+
+                <div class="kpi-card kpi-delivered">
+                    <div class="kpi-icon">📤</div>
+                    <div class="kpi-content">
+                        <div class="kpi-label">Delivered</div>
+                        <div class="kpi-value delivered-color">${delivered.toLocaleString()}</div>
+                    </div>
+                </div>
+
+                <div class="kpi-card kpi-failed">
+                    <div class="kpi-icon">❌</div>
+                    <div class="kpi-content">
+                        <div class="kpi-label">Failed</div>
+                        <div class="kpi-value failed-color">${failed.toLocaleString()}</div>
+                    </div>
+                </div>
+
+                <div class="kpi-card kpi-pending">
+                    <div class="kpi-icon">📥</div>
+                    <div class="kpi-content">
+                        <div class="kpi-label">Received</div>
+                        <div class="kpi-value pending-color">${received.toLocaleString()}</div>
+                    </div>
+                </div>
+
+                <div class="kpi-card kpi-rate">
+                    <div class="kpi-icon">👥</div>
+                    <div class="kpi-content">
+                        <div class="kpi-label">Unique Chats</div>
+                        <div class="kpi-value">${uniqueChats.toLocaleString()}</div>
+                    </div>
+                </div>
+
+                <div class="kpi-card kpi-rate">
+                    <div class="kpi-icon">📊</div>
+                    <div class="kpi-content">
+                        <div class="kpi-label">Success Rate</div>
+                        <div class="kpi-value">${rate}%</div>
+                    </div>
+                </div>
+
+                <div class="kpi-card kpi-rate">
+                    <div class="kpi-icon">📨</div>
+                    <div class="kpi-content">
+                        <div class="kpi-label">Total</div>
+                        <div class="kpi-value">${total.toLocaleString()}</div>
+                    </div>
+                </div>
+
+            </div>
+
+            <div class="chart-section">
+                <div class="chart-controls">
+                    <label>Show data for:</label>
+                    <select id="chartDateFilter" onchange="updateOverviewChart()">
+                        <option value="all">All Data</option>
+                        <option value="today">Today</option>
+                        <option value="week">Last 7 Days</option>
+                        <option value="month">Last 30 Days</option>
+                        <option value="custom">Custom Date</option>
+                    </select>
+                    <div id="chartCustomDates" class="chart-custom-dates">
+                        <input type="date" id="chartDateFrom" onchange="updateOverviewChart()" />
+                        <span>to</span>
+                        <input type="date" id="chartDateTo" onchange="updateOverviewChart()" />
+                    </div>
+                </div>
+
+                <div id="overviewChart" class="chart-container">
+                    <canvas id="deliveryChart"></canvas>
+                </div>
+            </div>
+
+            <div id="extensionDataPanel" class="extension-data-panel"></div>
+
+        </div>
+    `;
+
+    storeNumberStatsSnapshot(numbers);
+    renderExtensionDataPanel(numbers);
+
+    const chartSelect =
+        document.getElementById(
+            "chartDateFilter"
+        );
+
+    if (chartSelect) {
+        chartSelect.value = "all";
+    }
+
+    if (document.getElementById("contactSelect")) {
+        document.getElementById("contactSelect").value = currentSelectedContact || "";
+    }
+
+    loadDeliveryChart(
+        "all",
+        currentExtensionId,
+        currentSelectedContact,
+        currentContactFilter
+    );
+
+}
+
+
+function renderExtensionDataPanel(numbers) {
+    const panel = document.getElementById("extensionDataPanel");
+
+    if (!panel) {
+        return;
+    }
+
+    panel.dataset.numbers = JSON.stringify(Array.isArray(numbers) ? numbers : []);
+
+    if (extensionMessagesView) {
+        panel.innerHTML = `
+            <div class="messages-inline-card">
+                <div class="messages-panel-header">
+                    <div>
+                        <h3>${currentInlineMessageContact ? `Messages with ${escapeHtml(currentInlineMessageContact)}` : "All messages"}</h3>
+                        <div class="messages-panel-subtitle">${currentReportFrom || currentReportTo ? `${currentReportFrom ? `From ${escapeHtml(currentReportFrom)}` : "From all dates"}${currentReportTo ? ` to ${escapeHtml(currentReportTo)}` : ""}` : "All dates"}</div>
+                    </div>
+                    <button class="secondary-button" onclick="backToStatistics()">Back</button>
+                </div>
+                <div id="extensionMessagesTable" class="messages-inline-table"></div>
+            </div>
+        `;
+
+        loadExtensionMessagesInline();
+        panel.scrollIntoView({ behavior: "smooth", block: "start" });
+        return;
+    }
+
+    panel.innerHTML = `
+        <div class="extension-stats-section">
+            <h3>Statistics by number</h3>
+            <div class="number-stats-list">
+                ${numbers.length ? numbers.map(item => `
+                    <div class="ext-stat-item"
+                        data-number="${escapeHtml(item.number)}"
+                        onclick="showMessagesForContact('${String(item.number).replace(/'/g, "\\'")}')"
+                        role="button"
+                        tabindex="0"
+                        onkeydown="if(event.key === 'Enter' || event.key === ' ') { event.preventDefault(); showMessagesForContact('${String(item.number).replace(/'/g, "\\'")}'); }">
+                        <div class="ext-stat-header">
+                            <span class="ext-number">${escapeHtml(item.number)}</span>
+                            <span class="ext-name">${item.total} messages</span>
+                        </div>
+                        <div class="ext-stat-metrics">
+                            <div class="metric"><span class="metric-label">Delivered</span><span class="metric-value delivered-color">${item.delivered}</span></div>
+                            <div class="metric"><span class="metric-label">Received</span><span class="metric-value pending-color">${item.received}</span></div>
+                            <div class="metric"><span class="metric-label">Failed</span><span class="metric-value failed-color">${item.failed}</span></div>
+                        </div>
+                    </div>
+                `).join("") : '<div class="empty">No chat statistics available.</div>'}
+            </div>
+        </div>
+    `;
+}
+
+
+function setContactFilter(filter) {
+    currentContactFilter = filter;
+
+    if (filter === "all") {
+        currentSelectedContact = "";
+    }
+
+    extensionMessagesView = false;
+    currentInlineMessageContact = "";
+    loadExtensionOverview();
+}
+
+
+function changeSelectedContact(value) {
+    currentSelectedContact = value;
+
+    if (value) {
+        currentContactFilter = "contact";
+    }
+
+    extensionMessagesView = false;
+    currentInlineMessageContact = "";
+    loadExtensionOverview();
+}
+
+
+function showMessagesForContact(number) {
+    if (!number) {
+        return;
+    }
+
+    currentInlineMessageContact = number;
+    currentSelectedContact = number;
+    currentContactFilter = "contact";
+    extensionMessagesView = true;
+
+    const select = document.getElementById("contactSelect");
+    if (select) {
+        select.value = number;
+    }
+
+    renderExtensionDataPanel(getCurrentNumberStats());
+}
+
+
+function getCurrentNumberStats() {
+    const panel = document.getElementById("extensionDataPanel");
+    if (!panel) {
+        return [];
+    }
+
+    const stats = panel.dataset.numbers || "[]";
+    try {
+        return JSON.parse(stats);
+    } catch (error) {
+        return [];
+    }
+}
+
+
+function showExtensionMessages() {
+    currentInlineMessageContact = "";
+    extensionMessagesView = true;
+    renderExtensionDataPanel(currentNumberStatsSnapshot || []);
+}
+
+
+function backToStatistics() {
+    extensionMessagesView = false;
+    currentInlineMessageContact = "";
+    renderExtensionDataPanel(currentNumberStatsSnapshot || []);
+}
+
+
+let currentNumberStatsSnapshot = [];
+
+
+function storeNumberStatsSnapshot(numbers) {
+    currentNumberStatsSnapshot = Array.isArray(numbers) ? numbers : [];
+}
+
+
+function generateExtensionReport() {
+    currentReportFrom =
+        document.getElementById("extensionReportFrom")?.value || "";
+
+    currentReportTo =
+        document.getElementById("extensionReportTo")?.value || "";
+
+    if (
+        currentReportFrom &&
+        currentReportTo &&
+        currentReportFrom > currentReportTo
+    ) {
+        alert("The start date cannot be later than the end date.");
+        return;
+    }
+
+    loadExtensionOverview();
+}
+
+
+async function loadExtensionMessagesInline() {
+    const container = document.getElementById("extensionMessagesTable");
+
+    if (!container) {
+        return;
+    }
+
+    container.innerHTML = '<div class="loading">Loading messages...</div>';
+
+    try {
+        const params = new URLSearchParams();
+        params.set("page", "1");
+        params.set("perPage", "500");
+        params.set("sort", "newest");
+
+        if (currentReportFrom) {
+            params.set("dateFrom", currentReportFrom);
+        }
+
+        if (currentReportTo) {
+            params.set("dateTo", currentReportTo);
+        }
+
+        if (currentInlineMessageContact) {
+            params.set("contact", currentInlineMessageContact);
+        }
+
+        const response = await fetch(`/api/extensions/${currentExtensionId}/messages?${params.toString()}`);
+
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+        }
+
+        const data = await response.json();
+        const messages = data.records || [];
+
+        if (!messages.length) {
+            container.innerHTML = '<div class="empty">No messages found for this view.</div>';
+            return;
+        }
+
+        container.innerHTML = `
+            <table class="messages-table">
+                <thead>
+                    <tr>
+                        <th>Date</th>
+                        <th>Direction</th>
+                        <th>From</th>
+                        <th>To</th>
+                        <th>Status</th>
+                        <th>Message</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${messages.map(renderMessage).join("")}
+                </tbody>
+            </table>
+        `;
+
+    } catch (error) {
+        console.error("Inline messages error:", error);
+        container.innerHTML = `
+            <div class="error-card">
+                <h2>Failed to load messages</h2>
+                <p>${escapeHtml(error.message)}</p>
+            </div>
+        `;
+    }
+}
 
 // ======================================================
 // LOAD OVERVIEW DATA
@@ -785,7 +1329,10 @@ function renderExtensionStats(
 // ======================================================
 
 async function loadDeliveryChart(
-    dateFilter = "all"
+    dateFilter = "all",
+    extensionId = null,
+    selectedContact = "",
+    contactFilter = "all"
 ) {
 
     const canvas =
@@ -900,6 +1447,23 @@ async function loadDeliveryChart(
                 formatDate(endDate)
             );
 
+        }
+
+        if (extensionId) {
+            params.set(
+                "extensionId",
+                String(extensionId)
+            );
+        }
+
+        if (
+            contactFilter === "contact" &&
+            selectedContact
+        ) {
+            params.set(
+                "contact",
+                selectedContact
+            );
         }
 
         const url =
@@ -2135,53 +2699,19 @@ function changePage(
 // REFRESH
 // ======================================================
 
-async function refreshCurrentView() {
+function refreshCurrentView() {
 
-    try {
+    if (
+        currentExtensionId
+    ) {
 
-        const response = await fetch(
-            "/api/refresh",
-            {
-                method: "POST"
-            }
-        );
+        loadMessages();
 
-        const result = await response.json();
+    } else {
 
-        if (!response.ok) {
+        loadExtensions();
 
-            throw new Error(
-                result.error ||
-                "Refresh failed"
-            );
-
-        }
-
-        if (
-            currentExtensionId
-        ) {
-
-            loadMessages();
-
-        } else {
-
-            loadExtensions();
-
-            showOverview();
-
-        }
-
-    } catch (error) {
-
-        console.error(
-            "Refresh failed:",
-            error
-        );
-
-        alert(
-            "Refresh failed: " +
-            error.message
-        );
+        showOverview();
 
     }
 

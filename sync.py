@@ -2,7 +2,7 @@ import os
 import time
 import requests
 
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 
 from dotenv import load_dotenv
 
@@ -156,52 +156,10 @@ def now_utc():
 # GET ALL SMS PAGES
 # =========================================================
 
-
-def iso_utc(dt):
-
-    if dt.tzinfo is None:
-        dt = dt.replace(
-            tzinfo=timezone.utc
-        )
-
-    return dt.astimezone(
-        timezone.utc
-    ).strftime(
-        "%Y-%m-%dT%H:%M:%SZ"
-    )
-
-
-def get_last_message_time(
-    extension_id
-):
-
-    conn = get_connection()
-
-    row = conn.execute("""
-        SELECT MAX(creation_time)
-        FROM messages
-        WHERE extension_id = ?
-    """, (extension_id,)).fetchone()
-
-    conn.close()
-
-    return row[0] if row and row[0] else None
-
-
 def get_all_messages(
     access_token,
-    extension_id,
-    date_from=None,
-    date_to=None
+    extension_id
 ):
-
-    if date_from is None:
-
-        date_from = "2026-01-01T00:00:00Z"
-
-    if date_to is None:
-
-        date_to = now_utc()
 
     all_messages = []
 
@@ -231,9 +189,8 @@ def get_all_messages(
 
                 "page": page,
 
-                "dateFrom": date_from,
-
-                "dateTo": date_to
+                "dateFrom":
+                    "2026-01-01T00:00:00Z"
             }
         )
 
@@ -268,6 +225,7 @@ def get_all_messages(
 
         page += 1
 
+        # Небольшая пауза между страницами
         time.sleep(1.1)
 
     return all_messages
@@ -484,10 +442,7 @@ def sync_extensions(
 
 def sync_messages(
     access_token,
-    extension,
-    date_from=None,
-    date_to=None,
-    manual=False
+    extension
 ):
 
     extension_id = (
@@ -503,62 +458,25 @@ def sync_messages(
         or extension_id
     )
 
-    if date_from is None or date_to is None:
-
-        last_message_time = (
-            get_last_message_time(
-                extension_id
-            )
-        )
-
-        if last_message_time:
-
-            try:
-
-                last_dt = datetime.fromisoformat(
-                    last_message_time.replace(
-                        "Z",
-                        "+00:00"
-                    )
-                )
-
-                date_from = iso_utc(
-                    last_dt - timedelta(minutes=1)
-                )
-
-            except ValueError:
-
-                date_from = "2026-01-01T00:00:00Z"
-
-        else:
-
-            date_from = "2026-01-01T00:00:00Z"
-
-        date_to = now_utc()
-
-    if not manual and date_from == "2026-01-01T00:00:00Z":
-
-        date_from = iso_utc(
-            datetime.now(timezone.utc)
-            - timedelta(hours=1)
-        )
-
     print(
         f"\nSyncing SMS for "
         f"extension "
         f"{extension_number}..."
-        f" | range: {date_from} -> {date_to}"
     )
+
+    # =============================================
+    # ВАЖНО:
+    #
+    # Здесь мы НЕ делаем rc_get напрямую.
+    #
+    # Вместо этого получаем ВСЕ страницы.
+    # =============================================
 
     records = get_all_messages(
 
         access_token,
 
-        extension_id,
-
-        date_from=date_from,
-
-        date_to=date_to
+        extension_id
     )
 
     print(
@@ -732,7 +650,7 @@ def sync_messages(
 # SYNC EVERYTHING
 # =========================================================
 
-def sync_all(manual=False):
+def sync_all():
 
     print("=" * 60)
 
@@ -742,46 +660,36 @@ def sync_all(manual=False):
 
     print("=" * 60)
 
+    # Получаем JWT → Access Token
+
     access_token = (
         get_access_token()
     )
+
+    # -----------------------------------------
+    # Extensions
+    # -----------------------------------------
 
     extensions = sync_extensions(
         access_token
     )
 
-    total_messages = 0
+    # -----------------------------------------
+    # Messages
+    # -----------------------------------------
 
-    now_dt = datetime.now(
-        timezone.utc
-    )
+    total_messages = 0
 
     for extension in extensions:
 
         try:
 
-            if manual:
-
-                total_messages += (
-                    sync_messages(
-                        access_token,
-                        extension,
-                        manual=True
-                    )
+            total_messages += (
+                sync_messages(
+                    access_token,
+                    extension
                 )
-
-            else:
-
-                previous_hour = now_dt - timedelta(hours=1)
-
-                total_messages += (
-                    sync_messages(
-                        access_token,
-                        extension,
-                        date_from=iso_utc(previous_hour),
-                        date_to=iso_utc(now_dt)
-                    )
-                )
+            )
 
         except requests.exceptions.HTTPError as e:
 
@@ -811,8 +719,6 @@ def sync_all(manual=False):
     )
 
     print("=" * 60)
-
-    return total_messages
 
 
 # =========================================================
