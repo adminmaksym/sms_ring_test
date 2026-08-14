@@ -1,6 +1,8 @@
 import os
 import sqlite3
 from datetime import datetime
+from io import BytesIO
+from pathlib import Path
 
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment
@@ -11,7 +13,8 @@ from openpyxl.utils import get_column_letter
 # DATABASE
 # =========================================================
 
-DB_FILE = "sms_monitor.db"
+BASE_DIR = Path(__file__).resolve().parent
+DB_FILE = BASE_DIR / "sms_monitor.db"
 
 
 def get_connection():
@@ -65,6 +68,266 @@ def get_message_count(extension_id):
     conn.close()
 
     return row["total"]
+
+
+# =========================================================
+# GENERATE EXCEL FROM MESSAGES
+# =========================================================
+
+def generate_excel_from_messages(
+    rows,
+    title="SMS"
+):
+    """
+    Generate Excel workbook from message rows.
+    
+    Args:
+        rows: List of message records
+        title: Sheet title (default: "SMS")
+    
+    Returns:
+        BytesIO object containing the Excel file
+    """
+
+    workbook = Workbook()
+
+    sheet = workbook.active
+
+    sheet.title = title
+
+
+    headers = [
+
+        "Date",
+
+        "Direction",
+
+        "From",
+
+        "To",
+
+        "Status",
+
+        "Message",
+
+        "Delivery Time",
+
+        "Last Updated",
+
+        "RingCentral ID"
+
+    ]
+
+
+    # Header
+
+    for column, header in enumerate(
+        headers,
+        start=1
+    ):
+
+        cell = sheet.cell(
+            row=1,
+            column=column,
+            value=header
+        )
+
+        cell.font = Font(
+            bold=True,
+            color="FFFFFF"
+        )
+
+        cell.fill = PatternFill(
+            start_color="1F4E78",
+            end_color="1F4E78",
+            fill_type="solid"
+        )
+
+        cell.alignment = Alignment(
+            horizontal="center",
+            vertical="center"
+        )
+
+
+    # =====================================================
+    # DATA
+    # =====================================================
+
+    for row_number, row in enumerate(
+        rows,
+        start=2
+    ):
+
+        values = [
+
+            row["creation_time"],
+
+            row["direction"],
+
+            row["from_number"],
+
+            row["to_number"],
+
+            row["status"],
+
+            row["message"],
+
+            row["delivery_time"],
+
+            row["last_updated"],
+
+            row["ringcentral_id"]
+
+        ]
+
+
+        for column, value in enumerate(
+            values,
+            start=1
+        ):
+
+            cell = sheet.cell(
+                row=row_number,
+                column=column,
+                value=value
+            )
+
+            cell.alignment = Alignment(
+                vertical="top",
+                wrap_text=(
+                    column == 6
+                )
+            )
+
+
+    # =====================================================
+    # COLUMN WIDTH
+    # =====================================================
+
+    widths = {
+
+        1: 22,  # Date
+
+        2: 14,  # Direction
+
+        3: 20,  # From
+
+        4: 20,  # To
+
+        5: 20,  # Status
+
+        6: 60,  # Message
+
+        7: 22,  # Delivery
+
+        8: 22,  # Updated
+
+        9: 25   # ID
+
+    }
+
+
+    for column, width in widths.items():
+
+        sheet.column_dimensions[
+            get_column_letter(column)
+        ].width = width
+
+
+    # =====================================================
+    # FREEZE HEADER
+    # =====================================================
+
+    sheet.freeze_panes = "A2"
+
+
+    # =====================================================
+    # AUTOFILTER
+    # =====================================================
+
+    sheet.auto_filter.ref = (
+        f"A1:I{len(rows) + 1}"
+    )
+
+
+    # Convert to BytesIO
+    output = BytesIO()
+    workbook.save(output)
+    output.seek(0)
+
+    return output
+
+
+# =========================================================
+# GET MESSAGES BY EXTENSIONS AND DATES
+# =========================================================
+
+def get_messages_by_extensions(
+    extension_ids,
+    date_from=None,
+    date_to=None
+):
+    """
+    Get messages from multiple extensions with date filtering.
+    
+    Args:
+        extension_ids: List of extension IDs
+        date_from: Start date (YYYY-MM-DD format, optional)
+        date_to: End date (YYYY-MM-DD format, optional)
+    
+    Returns:
+        List of message records
+    """
+
+    if not extension_ids:
+        return []
+
+    conn = get_connection()
+
+    query = """
+        SELECT
+            ringcentral_id,
+            extension_id,
+            from_number,
+            to_number,
+            direction,
+            message,
+            status,
+            creation_time,
+            delivery_time,
+            last_updated
+        FROM messages
+        WHERE extension_id IN ({})
+    """.format(
+        ",".join("?" * len(extension_ids))
+    )
+
+    params = list(extension_ids)
+
+    if date_from:
+        query += """
+            AND date(creation_time) >= date(?)
+        """
+        params.append(date_from)
+
+    if date_to:
+        query += """
+            AND date(creation_time) <= date(?)
+        """
+        params.append(date_to)
+
+    query += """
+        ORDER BY creation_time ASC
+    """
+
+    rows = conn.execute(
+        query,
+        params
+    ).fetchall()
+
+    conn.close()
+
+    return rows
 
 
 # =========================================================
@@ -247,168 +510,16 @@ def export_messages(extension):
 
 
     # =====================================================
-    # EXCEL
+    # GENERATE EXCEL
     # =====================================================
 
-    workbook = Workbook()
-
-    sheet = workbook.active
-
-    sheet.title = "SMS"
-
-
-    headers = [
-
-        "Date",
-
-        "Direction",
-
-        "From",
-
-        "To",
-
-        "Status",
-
-        "Message",
-
-        "Delivery Time",
-
-        "Last Updated",
-
-        "RingCentral ID"
-
-    ]
-
-
-    # Header
-
-    for column, header in enumerate(
-        headers,
-        start=1
-    ):
-
-        cell = sheet.cell(
-            row=1,
-            column=column,
-            value=header
-        )
-
-        cell.font = Font(
-            bold=True,
-            color="FFFFFF"
-        )
-
-        cell.fill = PatternFill(
-            start_color="1F4E78",
-            end_color="1F4E78",
-            fill_type="solid"
-        )
-
-        cell.alignment = Alignment(
-            horizontal="center",
-            vertical="center"
-        )
-
-
-    # =====================================================
-    # DATA
-    # =====================================================
-
-    for row_number, row in enumerate(
+    output = generate_excel_from_messages(
         rows,
-        start=2
-    ):
-
-        values = [
-
-            row["creation_time"],
-
-            row["direction"],
-
-            row["from_number"],
-
-            row["to_number"],
-
-            row["status"],
-
-            row["message"],
-
-            row["delivery_time"],
-
-            row["last_updated"],
-
-            row["ringcentral_id"]
-
-        ]
-
-
-        for column, value in enumerate(
-            values,
-            start=1
-        ):
-
-            cell = sheet.cell(
-                row=row_number,
-                column=column,
-                value=value
-            )
-
-            cell.alignment = Alignment(
-                vertical="top",
-                wrap_text=(
-                    column == 6
-                )
-            )
-
-
-    # =====================================================
-    # COLUMN WIDTH
-    # =====================================================
-
-    widths = {
-
-        1: 22,  # Date
-
-        2: 14,  # Direction
-
-        3: 20,  # From
-
-        4: 20,  # To
-
-        5: 20,  # Status
-
-        6: 60,  # Message
-
-        7: 22,  # Delivery
-
-        8: 22,  # Updated
-
-        9: 25   # ID
-
-    }
-
-
-    for column, width in widths.items():
-
-        sheet.column_dimensions[
-            get_column_letter(column)
-        ].width = width
-
-
-    # =====================================================
-    # FREEZE HEADER
-    # =====================================================
-
-    sheet.freeze_panes = "A2"
-
-
-    # =====================================================
-    # AUTOFILTER
-    # =====================================================
-
-    sheet.auto_filter.ref = (
-        f"A1:I{len(rows) + 1}"
+        title="SMS"
     )
+
+    workbook = output
+    sheet = None
 
 
     # =====================================================
@@ -452,10 +563,9 @@ def export_messages(extension):
         filename
     )
 
-
-    workbook.save(
-        output_path
-    )
+    # Save the BytesIO object to file
+    with open(output_path, 'wb') as f:
+        f.write(output.getvalue())
 
 
     print()

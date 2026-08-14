@@ -1,13 +1,21 @@
-from flask import Flask, jsonify, render_template, request
+from flask import Flask, jsonify, render_template, request, send_file
 import math
 import sqlite3
+import threading
+import time
 from pathlib import Path
+from datetime import datetime, timedelta, timezone
+from export import get_messages_by_extensions, generate_excel_from_messages
+from sync import sync_all
+
+BASE_DIR = Path(__file__).resolve().parent
+DB_FILE = BASE_DIR / "sms_monitor.db"
 
 app = Flask(__name__)
 
 def get_connection():
     conn = sqlite3.connect(
-        "sms_monitor.db",
+        DB_FILE,
         check_same_thread=False
     )
 
@@ -197,14 +205,15 @@ def api_overview():
     total = stats["total"] or 0
     delivered = stats["delivered"] or 0
     failed = stats["failed"] or 0
-    pending = stats["pending"] or 0
+    received = stats["pending"] or 0
 
+    # Success rate: Delivered vs Failed
     delivery_rate = (
         round(
-            delivered / total * 100,
+            delivered / (delivered + failed) * 100,
             1
         )
-        if total
+        if (delivered + failed) > 0
         else 0
     )
 
@@ -271,14 +280,14 @@ def api_overview():
         ext_total = row["total"] or 0
         ext_delivered = row["delivered"] or 0
         ext_failed = row["failed"] or 0
-        ext_pending = row["pending"] or 0
+        ext_received = row["pending"] or 0
 
         rate = (
             round(
-                ext_delivered / ext_total * 100,
+                ext_delivered / (ext_delivered + ext_failed) * 100,
                 1
             )
-            if ext_total
+            if (ext_delivered + ext_failed) > 0
             else 0
         )
 
@@ -290,7 +299,7 @@ def api_overview():
             "total": ext_total,
             "delivered": ext_delivered,
             "failed": ext_failed,
-            "pending": ext_pending,
+            "received": ext_received,
             "deliveryRate": rate
         })
 
@@ -300,9 +309,174 @@ def api_overview():
         "total": total,
         "delivered": delivered,
         "failed": failed,
-        "pending": pending,
+        "received": received,
         "delivery_rate": delivery_rate,
         "extensions": extensions
+    })
+
+
+# =========================================================
+# CHART DATA
+# =========================================================
+
+@app.route("/api/chart-data")
+def api_chart_data():
+
+    from datetime import datetime, timedelta
+
+    conn = get_connection()
+
+    date_from = request.args.get(
+        "dateFrom"
+    )
+
+    date_to = request.args.get(
+        "dateTo"
+    )
+
+    # Determine grouping interval
+    interval = "30min"
+    group_format = "%Y-%m-%d %H:%M"
+
+    if date_from and date_to:
+
+        d_from = datetime.strptime(
+            date_from,
+            "%Y-%m-%d"
+        )
+
+        d_to = datetime.strptime(
+            date_to,
+            "%Y-%m-%d"
+        )
+
+        days_diff = (
+            d_to - d_from
+        ).days
+
+        if days_diff > 1:
+
+            interval = "day"
+            group_format = "%Y-%m-%d"
+
+    # Query sent messages
+    sent_query = """
+        SELECT
+            strftime(?, creation_time) AS time_slot,
+            COUNT(*) AS count
+        FROM messages
+        WHERE status = 'sent'
+    """
+
+    sent_params = [group_format]
+
+    if date_from:
+
+        sent_query += """
+            AND date(creation_time) >= date(?)
+        """
+        sent_params.append(date_from)
+
+    if date_to:
+
+        sent_query += """
+            AND date(creation_time) <= date(?)
+        """
+        sent_params.append(date_to)
+
+    sent_query += """
+        GROUP BY strftime(?, creation_time)
+        ORDER BY time_slot ASC
+    """
+
+    sent_params.append(group_format)
+
+    sent_rows = conn.execute(
+        sent_query,
+        sent_params
+    ).fetchall()
+
+    # Query received messages
+    received_query = """
+        SELECT
+            strftime(?, creation_time) AS time_slot,
+            COUNT(*) AS count
+        FROM messages
+        WHERE status = 'received'
+    """
+
+    received_params = [group_format]
+
+    if date_from:
+
+        received_query += """
+            AND date(creation_time) >= date(?)
+        """
+        received_params.append(date_from)
+
+    if date_to:
+
+        received_query += """
+            AND date(creation_time) <= date(?)
+        """
+        received_params.append(date_to)
+
+    received_query += """
+        GROUP BY strftime(?, creation_time)
+        ORDER BY time_slot ASC
+    """
+
+    received_params.append(group_format)
+
+    received_rows = conn.execute(
+        received_query,
+        received_params
+    ).fetchall()
+
+    conn.close()
+
+    # Build data maps
+    sent_data = {}
+    received_data = {}
+
+    for row in sent_rows:
+
+        slot = row["time_slot"]
+        sent_data[slot] = row["count"]
+
+    for row in received_rows:
+
+        slot = row["time_slot"]
+        received_data[slot] = row["count"]
+
+    # Combine all time slots
+    all_slots = sorted(
+        set(sent_data.keys()) |
+        set(received_data.keys())
+    )
+
+    # Format labels and values
+    labels = []
+    sent_values = []
+    received_values = []
+
+    for slot in all_slots:
+
+        labels.append(slot)
+
+        sent_values.append(
+            sent_data.get(slot, 0)
+        )
+
+        received_values.append(
+            received_data.get(slot, 0)
+        )
+
+    # Return data
+    return jsonify({
+        "labels": labels,
+        "sent": sent_values,
+        "received": received_values
     })
 
 
@@ -696,6 +870,154 @@ def api_extension_messages(extension_id):
 
 
 # =========================================================
+# EXPORT MESSAGES
+# =========================================================
+
+@app.route("/api/export", methods=["POST"])
+def api_export():
+    """
+    Export messages from selected extensions with optional date range.
+    
+    POST body:
+    {
+        "extensionIds": [1001, 1002, ...],
+        "dateFrom": "2024-01-01" (optional),
+        "dateTo": "2024-01-31" (optional)
+    }
+    """
+
+    try:
+
+        data = request.get_json()
+
+        if not data:
+            return jsonify({
+                "error": "No JSON data provided"
+            }), 400
+
+        extension_ids = data.get("extensionIds", [])
+
+        if not extension_ids or not isinstance(
+            extension_ids,
+            list
+        ):
+            return jsonify({
+                "error": "extensionIds must be a non-empty list"
+            }), 400
+
+        date_from = data.get("dateFrom")
+        date_to = data.get("dateTo")
+
+        # Get messages from selected extensions
+        rows = get_messages_by_extensions(
+            extension_ids,
+            date_from=date_from,
+            date_to=date_to
+        )
+
+        if not rows:
+            return jsonify({
+                "error": "No messages found for selected criteria"
+            }), 404
+
+        # Generate Excel file
+        excel_file = generate_excel_from_messages(
+            rows,
+            title="SMS Export"
+        )
+
+        return send_file(
+            excel_file,
+            mimetype=(
+                "application/vnd.openxml"
+                "formats-officedocument."
+                "spreadsheetml.sheet"
+            ),
+            as_attachment=True,
+            download_name=(
+                f"SMS_Export_"
+                f"{len(extension_ids)}_ext_"
+                f"{len(rows)}_messages.xlsx"
+            )
+        )
+
+    except Exception as e:
+
+        return jsonify({
+            "error": str(e)
+        }), 500
+
+
+# =========================================================
+# SYNC / REFRESH
+# =========================================================
+
+@app.route("/api/refresh", methods=["POST"])
+def api_refresh():
+
+    try:
+
+        total = sync_all(manual=True)
+
+        return jsonify({
+            "success": True,
+            "messagesProcessed": total
+        })
+
+    except Exception as exc:
+
+        return jsonify({
+            "success": False,
+            "error": str(exc)
+        }), 500
+
+
+def start_hourly_sync_loop():
+
+    def worker():
+
+        while True:
+
+            try:
+
+                sync_all()
+
+            except Exception as exc:
+
+                print(
+                    f"Hourly sync failed: {exc}"
+                )
+
+            now = datetime.now(
+                timezone.utc
+            )
+
+            next_hour = (
+                now.replace(
+                    minute=0,
+                    second=0,
+                    microsecond=0
+                ) + timedelta(hours=1)
+            )
+
+            sleep_seconds = max(
+                1,
+                (next_hour - now).total_seconds()
+            )
+
+            time.sleep(
+                sleep_seconds
+            )
+
+    thread = threading.Thread(
+        target=worker,
+        daemon=True
+    )
+
+    thread.start()
+
+
+# =========================================================
 # DATABASE INFO
 # =========================================================
 
@@ -732,6 +1054,8 @@ def database_info():
 # =========================================================
 # START
 # =========================================================
+
+start_hourly_sync_loop()
 
 if __name__ == "__main__":
 
