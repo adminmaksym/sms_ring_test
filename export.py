@@ -1,30 +1,28 @@
 import os
 import sqlite3
 from datetime import datetime
+from io import BytesIO
 
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment
 from openpyxl.utils import get_column_letter
 
 
+DB_FILE = "sms_monitor.db"
+
+
 # =========================================================
 # DATABASE
 # =========================================================
 
-DB_FILE = "sms_monitor.db"
-
-
 def get_connection():
-
     conn = sqlite3.connect(DB_FILE)
-
     conn.row_factory = sqlite3.Row
-
     return conn
 
 
 # =========================================================
-# GET EXTENSIONS
+# EXTENSIONS
 # =========================================================
 
 def get_extensions():
@@ -49,7 +47,7 @@ def get_extensions():
 
 
 # =========================================================
-# GET MESSAGE COUNT
+# MESSAGE COUNT
 # =========================================================
 
 def get_message_count(extension_id):
@@ -68,7 +66,265 @@ def get_message_count(extension_id):
 
 
 # =========================================================
-# EXPORT
+# WEB EXPORT
+# =========================================================
+
+def get_messages_by_extensions(
+    extension_ids,
+    date_from=None,
+    date_to=None
+):
+    """
+    Получает сообщения для web API export.
+
+    extension_ids:
+        [123, 456, 789]
+
+    date_from:
+        YYYY-MM-DD
+
+    date_to:
+        YYYY-MM-DD
+    """
+
+    if not extension_ids:
+        return []
+
+    conn = get_connection()
+
+    placeholders = ",".join(
+        ["?"] * len(extension_ids)
+    )
+
+    query = f"""
+        SELECT
+            m.ringcentral_id,
+            m.extension_id,
+            e.extension_number,
+            e.name AS extension_name,
+
+            m.from_number,
+            m.to_number,
+            m.direction,
+            m.message,
+            m.status,
+            m.creation_time,
+            m.delivery_time,
+            m.last_updated
+
+        FROM messages m
+
+        LEFT JOIN extensions e
+            ON e.extension_id = m.extension_id
+
+        WHERE m.extension_id IN ({placeholders})
+    """
+
+    params = list(extension_ids)
+
+    # -----------------------------------------------------
+    # DATE FROM
+    # -----------------------------------------------------
+
+    if date_from:
+
+        query += """
+            AND date(m.creation_time) >= date(?)
+        """
+
+        params.append(date_from)
+
+    # -----------------------------------------------------
+    # DATE TO
+    # -----------------------------------------------------
+
+    if date_to:
+
+        query += """
+            AND date(m.creation_time) <= date(?)
+        """
+
+        params.append(date_to)
+
+    # -----------------------------------------------------
+    # ORDER
+    # -----------------------------------------------------
+
+    query += """
+        ORDER BY
+            m.creation_time ASC,
+            m.id ASC
+    """
+
+    rows = conn.execute(
+        query,
+        params
+    ).fetchall()
+
+    conn.close()
+
+    return rows
+
+
+# =========================================================
+# EXCEL GENERATOR
+# =========================================================
+
+def generate_excel_from_messages(
+    rows,
+    title="SMS Export"
+):
+    """
+    Создаёт XLSX в памяти и возвращает BytesIO.
+    """
+
+    workbook = Workbook()
+
+    sheet = workbook.active
+
+    sheet.title = "SMS"
+
+    # -----------------------------------------------------
+    # HEADERS
+    # -----------------------------------------------------
+
+    headers = [
+        "Extension",
+        "User",
+        "Date",
+        "Direction",
+        "From",
+        "To",
+        "Status",
+        "Message",
+        "Delivery Time",
+        "Last Updated",
+        "RingCentral ID"
+    ]
+
+    header_fill = PatternFill(
+        start_color="1F4E78",
+        end_color="1F4E78",
+        fill_type="solid"
+    )
+
+    header_font = Font(
+        bold=True,
+        color="FFFFFF"
+    )
+
+    header_alignment = Alignment(
+        horizontal="center",
+        vertical="center"
+    )
+
+    for column, header in enumerate(
+        headers,
+        start=1
+    ):
+
+        cell = sheet.cell(
+            row=1,
+            column=column,
+            value=header
+        )
+
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = header_alignment
+
+    # -----------------------------------------------------
+    # DATA
+    # -----------------------------------------------------
+
+    for row_number, row in enumerate(
+        rows,
+        start=2
+    ):
+
+        values = [
+            row["extension_number"],
+            row["extension_name"],
+            row["creation_time"],
+            row["direction"],
+            row["from_number"],
+            row["to_number"],
+            row["status"],
+            row["message"],
+            row["delivery_time"],
+            row["last_updated"],
+            row["ringcentral_id"]
+        ]
+
+        for column, value in enumerate(
+            values,
+            start=1
+        ):
+
+            cell = sheet.cell(
+                row=row_number,
+                column=column,
+                value=value
+            )
+
+            cell.alignment = Alignment(
+                vertical="top",
+                wrap_text=(column == 8)
+            )
+
+    # -----------------------------------------------------
+    # COLUMN WIDTHS
+    # -----------------------------------------------------
+
+    widths = {
+        1: 14,
+        2: 28,
+        3: 22,
+        4: 14,
+        5: 20,
+        6: 20,
+        7: 20,
+        8: 60,
+        9: 22,
+        10: 22,
+        11: 25
+    }
+
+    for column, width in widths.items():
+
+        sheet.column_dimensions[
+            get_column_letter(column)
+        ].width = width
+
+    # -----------------------------------------------------
+    # FREEZE
+    # -----------------------------------------------------
+
+    sheet.freeze_panes = "A2"
+
+    # -----------------------------------------------------
+    # FILTER
+    # -----------------------------------------------------
+
+    sheet.auto_filter.ref = (
+        f"A1:K{len(rows) + 1}"
+    )
+
+    # -----------------------------------------------------
+    # SAVE TO MEMORY
+    # -----------------------------------------------------
+
+    output = BytesIO()
+
+    workbook.save(output)
+
+    output.seek(0)
+
+    return output
+
+
+# =========================================================
+# OLD INTERACTIVE EXPORT
 # =========================================================
 
 def export_messages(extension):
@@ -110,30 +366,21 @@ def export_messages(extension):
 
         return
 
-
-    # =====================================================
+    # -----------------------------------------------------
     # DATE FILTER
-    # =====================================================
+    # -----------------------------------------------------
 
     print()
     print("Фильтр по дате:")
-
-    print(
-        "1. Все сообщения"
-    )
-
-    print(
-        "2. Указать период"
-    )
+    print("1. Все сообщения")
+    print("2. Указать период")
 
     date_choice = input(
         "\nВыбор: "
     ).strip()
 
-
     date_from = None
     date_to = None
-
 
     if date_choice == "2":
 
@@ -165,77 +412,20 @@ def export_messages(extension):
 
             return
 
+    # -----------------------------------------------------
+    # GET DATA
+    # -----------------------------------------------------
 
-    # =====================================================
-    # QUERY
-    # =====================================================
-
-    conn = get_connection()
-
-    query = """
-        SELECT
-
-            ringcentral_id,
-            from_number,
-            to_number,
-            direction,
-            message,
-            status,
-            creation_time,
-            delivery_time,
-            last_updated
-
-        FROM messages
-
-        WHERE extension_id = ?
-    """
-
-    params = [
-        extension_id
-    ]
-
-
-    if date_from:
-
-        query += """
-            AND creation_time >= ?
-        """
-
-        params.append(
-            date_from + "T00:00:00"
-        )
-
-
-    if date_to:
-
-        query += """
-            AND creation_time < ?
-        """
-
-        params.append(
-            date_to + "T23:59:59"
-        )
-
-
-    query += """
-        ORDER BY creation_time ASC
-    """
-
-
-    rows = conn.execute(
-        query,
-        params
-    ).fetchall()
-
-    conn.close()
-
+    rows = get_messages_by_extensions(
+        [extension_id],
+        date_from=date_from,
+        date_to=date_to
+    )
 
     print()
     print(
-        f"Подготовлено сообщений: "
-        f"{len(rows)}"
+        f"Подготовлено сообщений: {len(rows)}"
     )
-
 
     if not rows:
 
@@ -245,200 +435,31 @@ def export_messages(extension):
 
         return
 
-
-    # =====================================================
+    # -----------------------------------------------------
     # EXCEL
-    # =====================================================
+    # -----------------------------------------------------
 
-    workbook = Workbook()
-
-    sheet = workbook.active
-
-    sheet.title = "SMS"
-
-
-    headers = [
-
-        "Date",
-
-        "Direction",
-
-        "From",
-
-        "To",
-
-        "Status",
-
-        "Message",
-
-        "Delivery Time",
-
-        "Last Updated",
-
-        "RingCentral ID"
-
-    ]
-
-
-    # Header
-
-    for column, header in enumerate(
-        headers,
-        start=1
-    ):
-
-        cell = sheet.cell(
-            row=1,
-            column=column,
-            value=header
-        )
-
-        cell.font = Font(
-            bold=True,
-            color="FFFFFF"
-        )
-
-        cell.fill = PatternFill(
-            start_color="1F4E78",
-            end_color="1F4E78",
-            fill_type="solid"
-        )
-
-        cell.alignment = Alignment(
-            horizontal="center",
-            vertical="center"
-        )
-
-
-    # =====================================================
-    # DATA
-    # =====================================================
-
-    for row_number, row in enumerate(
+    workbook_file = generate_excel_from_messages(
         rows,
-        start=2
-    ):
-
-        values = [
-
-            row["creation_time"],
-
-            row["direction"],
-
-            row["from_number"],
-
-            row["to_number"],
-
-            row["status"],
-
-            row["message"],
-
-            row["delivery_time"],
-
-            row["last_updated"],
-
-            row["ringcentral_id"]
-
-        ]
-
-
-        for column, value in enumerate(
-            values,
-            start=1
-        ):
-
-            cell = sheet.cell(
-                row=row_number,
-                column=column,
-                value=value
-            )
-
-            cell.alignment = Alignment(
-                vertical="top",
-                wrap_text=(
-                    column == 6
-                )
-            )
-
-
-    # =====================================================
-    # COLUMN WIDTH
-    # =====================================================
-
-    widths = {
-
-        1: 22,  # Date
-
-        2: 14,  # Direction
-
-        3: 20,  # From
-
-        4: 20,  # To
-
-        5: 20,  # Status
-
-        6: 60,  # Message
-
-        7: 22,  # Delivery
-
-        8: 22,  # Updated
-
-        9: 25   # ID
-
-    }
-
-
-    for column, width in widths.items():
-
-        sheet.column_dimensions[
-            get_column_letter(column)
-        ].width = width
-
-
-    # =====================================================
-    # FREEZE HEADER
-    # =====================================================
-
-    sheet.freeze_panes = "A2"
-
-
-    # =====================================================
-    # AUTOFILTER
-    # =====================================================
-
-    sheet.auto_filter.ref = (
-        f"A1:I{len(rows) + 1}"
+        title="SMS"
     )
 
-
-    # =====================================================
-    # OUTPUT NAME
-    # =====================================================
-
     safe_name = "".join(
-
         c if c.isalnum() or c in (
             " ",
             "_",
             "-"
         )
-
         else "_"
-
         for c in name
-
     ).strip()
 
-
     if not safe_name:
-
         safe_name = "User"
-
 
     date_suffix = datetime.now().strftime(
         "%Y-%m-%d_%H-%M"
     )
-
 
     filename = (
         f"SMS_{extension_number}_"
@@ -446,17 +467,19 @@ def export_messages(extension):
         f"{date_suffix}.xlsx"
     )
 
-
     output_path = os.path.join(
         os.getcwd(),
         filename
     )
 
+    with open(
+        output_path,
+        "wb"
+    ) as file:
 
-    workbook.save(
-        output_path
-    )
-
+        file.write(
+            workbook_file.getvalue()
+        )
 
     print()
     print("=" * 60)
@@ -481,16 +504,10 @@ def export_messages(extension):
 def main():
 
     print("=" * 60)
-
-    print(
-        "SMS MONITOR — EXCEL EXPORT"
-    )
-
+    print("SMS MONITOR — EXCEL EXPORT")
     print("=" * 60)
 
-
     extensions = get_extensions()
-
 
     if not extensions:
 
@@ -501,14 +518,9 @@ def main():
 
         return
 
-
     print()
-    print(
-        "Доступные пользователи:"
-    )
-
+    print("Доступные пользователи:")
     print()
-
 
     for index, extension in enumerate(
         extensions,
@@ -536,13 +548,11 @@ def main():
             f"{count} SMS"
         )
 
-
     print()
 
     choice = input(
         "Выберите extension: "
     ).strip()
-
 
     try:
 
@@ -556,10 +566,7 @@ def main():
 
         return
 
-
-    if index < 1 or index > len(
-        extensions
-    ):
+    if index < 1 or index > len(extensions):
 
         print(
             "Такого extension нет."
@@ -567,21 +574,14 @@ def main():
 
         return
 
-
     extension = extensions[
         index - 1
     ]
-
 
     export_messages(
         extension
     )
 
 
-# =========================================================
-# START
-# =========================================================
-
 if __name__ == "__main__":
-
     main()
