@@ -595,7 +595,7 @@ tbody tr:hover,
 }
 
 .chart-controls {
-    display: flex;
+    display: none;
     align-items: center;
     gap: 10px;
     margin-bottom: 18px;
@@ -641,8 +641,43 @@ tbody tr:hover,
 }
 
 .chart-container {
+    position: relative;
     height: 450px;
     padding: 18px;
+}
+
+.chart-tooltip {
+    position: absolute;
+    z-index: 3;
+    display: none;
+    min-width: 150px;
+    padding: 9px 11px;
+    border: 1px solid #dbe3ed;
+    border-radius: 8px;
+    background: rgba(255, 255, 255, .97);
+    box-shadow: 0 8px 20px rgba(15, 23, 42, .14);
+    color: #475569;
+    font-size: 12px;
+    pointer-events: none;
+}
+
+.chart-tooltip.visible {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+
+.chart-tooltip strong {
+    margin-bottom: 2px;
+    color: #172033;
+}
+
+.tooltip-sent {
+    color: #2563eb;
+}
+
+.tooltip-received {
+    color: #059669;
 }
 
 /* =========================================================
@@ -887,6 +922,133 @@ tbody tr:hover,
     font-weight: 650;
 }
 
+.analog-clock-picker {
+    padding: 12px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: #f8fafc;
+}
+
+.analog-clock-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 9px;
+    color: #64748b;
+    font-size: 11px;
+}
+
+.analog-clock-header strong {
+    color: var(--text);
+    font-size: 16px;
+}
+
+.clock-time-controls {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+}
+
+.clock-period {
+    padding: 3px 5px;
+    border: 1px solid #cbd5e1;
+    border-radius: 4px;
+    color: #64748b;
+    background: #fff;
+    cursor: pointer;
+    font-size: 10px;
+    font-weight: 750;
+}
+
+.clock-period:hover,
+.clock-period.selected {
+    border-color: var(--primary);
+    color: #fff;
+    background: var(--primary);
+}
+
+.analog-clock-face {
+    position: relative;
+    width: min(100%, 188px);
+    aspect-ratio: 1;
+    margin: 0 auto 10px;
+    border: 7px solid #334155;
+    border-radius: 50%;
+    background: radial-gradient(circle, #fff 0 67%, #e2e8f0 68% 100%);
+    box-shadow: inset 0 0 0 2px #94a3b8, 0 4px 9px rgba(15, 23, 42, .12);
+}
+
+.clock-number {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 31px;
+    height: 31px;
+    padding: 0;
+    border: 0;
+    border-radius: 50%;
+    color: #1e293b;
+    background: transparent;
+    cursor: pointer;
+    font-size: 11px;
+    font-weight: 750;
+    transform: translate(-50%, -50%) rotate(var(--angle)) translateY(-67px) rotate(calc(var(--angle) * -1));
+}
+
+.clock-number:hover,
+.clock-number.selected {
+    color: #fff;
+    background: var(--primary);
+}
+
+.clock-hand {
+    position: absolute;
+    z-index: 1;
+    bottom: 50%;
+    left: calc(50% - 2px);
+    width: 4px;
+    border-radius: 4px;
+    background: #1e293b;
+    transform-origin: 50% 100%;
+}
+
+.hour-hand {
+    height: 38px;
+}
+
+.minute-hand {
+    height: 54px;
+    background: var(--primary);
+}
+
+.clock-center {
+    position: absolute;
+    z-index: 2;
+    top: calc(50% - 5px);
+    left: calc(50% - 5px);
+    width: 10px;
+    height: 10px;
+    border: 2px solid #fff;
+    border-radius: 50%;
+    background: var(--primary);
+}
+
+.clock-clear {
+    display: block;
+    margin: 0 auto;
+    padding: 4px 8px;
+    border: 0;
+    color: #64748b;
+    background: transparent;
+    cursor: pointer;
+    font-size: 11px;
+}
+
+.clock-clear:hover {
+    color: var(--primary);
+}
+
 .export-actions {
     display: flex;
     flex-direction: column;
@@ -964,6 +1126,209 @@ tbody tr:hover,
     background: #fef2f2;
     color: #dc2626;
     border: 1px solid #fee2e2;
+}
+
+/* =========================================================
+   GAMBLING SLOT MACHINE
+   ========================================================= */
+
+.gambling-modal {
+    position: fixed;
+    inset: 0;
+    z-index: 20;
+    display: grid;
+    place-items: center;
+    padding: 20px;
+    background: rgba(15, 23, 42, .72);
+    backdrop-filter: blur(6px);
+}
+
+.gambling-window {
+    position: relative;
+    width: min(100%, 560px);
+    padding: 34px;
+    overflow: hidden;
+    color: #fef3c7;
+    background: linear-gradient(145deg, #471a38, #21152e 72%);
+    border: 2px solid #d9a441;
+    border-radius: 16px;
+    box-shadow: 0 28px 80px rgba(0, 0, 0, .45), inset 0 0 0 6px rgba(255, 255, 255, .04);
+}
+
+.gambling-close {
+    position: absolute;
+    top: 12px;
+    right: 16px;
+    width: 34px;
+    height: 34px;
+    padding: 0;
+    border: 1px solid rgba(254, 243, 199, .32);
+    border-radius: 50%;
+    color: #fef3c7;
+    background: transparent;
+    cursor: pointer;
+    font-size: 25px;
+    line-height: 1;
+}
+
+.gambling-kicker {
+    color: #f7c65d;
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+}
+
+.gambling-window h2 {
+    margin: 7px 0 4px;
+    color: #fff7d6;
+    font-size: 34px;
+    line-height: 1.1;
+}
+
+.gambling-subtitle {
+    margin: 0 0 24px;
+    color: #d8c9c9;
+    font-size: 14px;
+}
+
+.slot-machine {
+    position: relative;
+    padding: 18px 18px 15px;
+    border: 3px solid #b77931;
+    border-radius: 11px;
+    background: linear-gradient(180deg, #7d2c38, #4b1b35);
+    box-shadow: inset 0 0 24px rgba(0, 0, 0, .4);
+}
+
+.slot-stage {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    margin: 14px 0;
+    perspective: 500px;
+}
+
+.slot-topline,
+.slot-bottomline {
+    display: flex;
+    justify-content: space-between;
+    gap: 10px;
+    color: #f7c65d;
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 1.3px;
+}
+
+.slot-topline span:last-child {
+    color: #ffe9b0;
+    font-weight: 500;
+    letter-spacing: 0;
+    text-align: right;
+}
+
+.slot-reels {
+    display: grid;
+    flex: 1;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 10px;
+}
+
+.slot-lever {
+    position: relative;
+    width: 42px;
+    height: 124px;
+    flex: 0 0 42px;
+    padding: 0;
+    border: 3px solid #a76b2e;
+    border-radius: 9px;
+    background: linear-gradient(90deg, #5b2634, #8d3b3d 48%, #4a1c32);
+    cursor: pointer;
+    box-shadow: inset 0 0 8px rgba(0, 0, 0, .35), 3px 4px 0 rgba(25, 10, 24, .35);
+}
+
+.slot-lever:focus-visible {
+    outline: 3px solid #ffe08a;
+    outline-offset: 3px;
+}
+
+.lever-arm {
+    position: absolute;
+    top: 7px;
+    left: 15px;
+    width: 8px;
+    height: 79px;
+    transform-origin: 50% 100%;
+    border-radius: 8px;
+    background: linear-gradient(90deg, #b77931, #f0c15a, #9b5d25);
+    box-shadow: 1px 1px 2px rgba(0, 0, 0, .45);
+    transition: transform .16s ease-out;
+}
+
+.lever-ball {
+    position: absolute;
+    top: -18px;
+    left: -10px;
+    width: 28px;
+    height: 28px;
+    border: 2px solid #e0a53d;
+    border-radius: 50%;
+    background: radial-gradient(circle at 35% 30%, #ffdb72, #b75a2d 72%);
+    box-shadow: 2px 3px 4px rgba(0, 0, 0, .4);
+}
+
+.slot-lever.pulled .lever-arm {
+    animation: lever-pull .55s cubic-bezier(.2, .8, .25, 1);
+}
+
+.slot-reel {
+    display: grid;
+    min-height: 112px;
+    place-items: center;
+    overflow: hidden;
+    border: 4px solid #e1ad4c;
+    border-radius: 8px;
+    color: #431b32;
+    background: #fff5d6;
+    box-shadow: inset 0 0 15px rgba(96, 39, 23, .25);
+    font-size: 40px;
+    font-weight: 900;
+}
+
+.slot-reel span {
+    transition: transform .05s linear;
+}
+
+.slot-reel.rolling {
+    animation: reel-shake .12s linear infinite;
+}
+
+.slot-payline {
+    position: absolute;
+    top: 103px;
+    right: 70px;
+    left: 10px;
+    height: 2px;
+    background: #d94750;
+    box-shadow: 0 0 8px #ff6b62;
+    opacity: .8;
+}
+
+.slot-bottomline {
+    justify-content: center;
+    font-size: 9px;
+}
+
+@keyframes reel-shake {
+    0%, 100% { transform: translateX(0); }
+    50% { transform: translateX(2px); }
+}
+
+@keyframes lever-pull {
+    0% { transform: rotate(0deg); }
+    35% { transform: rotateX(-52deg); }
+    68% { transform: rotateX(-52deg); }
+    100% { transform: rotate(0deg); }
 }
 
 /* =========================================================

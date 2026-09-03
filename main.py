@@ -37,7 +37,10 @@ load_dotenv()
 # CONFIG
 # =========================================================
 
-DB_FILE = "sms_monitor.db"
+DB_FILE = os.path.join(
+    os.path.dirname(__file__),
+    "sms_monitor.db"
+)
 
 RC_BASE_URL = (
     "https://platform.ringcentral.com"
@@ -120,6 +123,33 @@ def export_filter_value(value):
         )
 
     return parsed.astimezone(timezone.utc).isoformat()
+
+
+def extension_date_bounds(date_from, date_to):
+    kyiv = ZoneInfo("Europe/Kyiv")
+    start = None
+    end = None
+
+    if date_from:
+        start = datetime.strptime(
+            date_from,
+            "%Y-%m-%d"
+        ).replace(
+            tzinfo=kyiv
+        ).astimezone(timezone.utc).isoformat()
+
+    if date_to:
+        end = (
+            datetime.strptime(
+                date_to,
+                "%Y-%m-%d"
+            )
+            + timedelta(days=1)
+        ).replace(
+            tzinfo=kyiv
+        ).astimezone(timezone.utc).isoformat()
+
+    return start, end
 
 
 # =========================================================
@@ -1346,6 +1376,11 @@ def api_extension_overview(
         "dateTo"
     )
 
+    date_from_utc, date_to_utc = extension_date_bounds(
+        date_from,
+        date_to
+    )
+
     contact = request.args.get(
         "contact"
     )
@@ -1361,21 +1396,21 @@ def api_extension_overview(
     if date_from:
 
         where_clauses.append(
-            "date(creation_time) >= date(?)"
+            "datetime(creation_time) >= datetime(?)"
         )
 
         params.append(
-            date_from
+            date_from_utc
         )
 
     if date_to:
 
         where_clauses.append(
-            "date(creation_time) <= date(?)"
+            "datetime(creation_time) < datetime(?)"
         )
 
         params.append(
-            date_to
+            date_to_utc
         )
 
     if contact:
@@ -1666,13 +1701,19 @@ def api_chart_data():
 
     conn = get_connection()
 
-    date_from = request.args.get(
-        "dateFrom"
+    current_hour = now_utc().replace(
+        minute=0,
+        second=0,
+        microsecond=0
     )
 
-    date_to = request.args.get(
-        "dateTo"
-    )
+    date_from = (
+        current_hour - timedelta(hours=23)
+    ).isoformat()
+
+    date_to = (
+        current_hour + timedelta(hours=1)
+    ).isoformat()
 
     extension_id = request.args.get(
         "extensionId"
@@ -1682,40 +1723,10 @@ def api_chart_data():
         "contact"
     )
 
-    group_format = (
-        "%Y-%m-%d %H:%M"
-    )
-
-    if date_from and date_to:
-
-        try:
-
-            d_from = datetime.strptime(
-                date_from,
-                "%Y-%m-%d"
-            )
-
-            d_to = datetime.strptime(
-                date_to,
-                "%Y-%m-%d"
-            )
-
-            days_diff = (
-                d_to - d_from
-            ).days
-
-            if days_diff > 1:
-
-                group_format = (
-                    "%Y-%m-%d"
-                )
-
-        except ValueError:
-
-            pass
+    group_format = "%Y-%m-%d %H:00"
 
     def load_chart_data(
-        status
+        direction
     ):
 
         query = """
@@ -1730,12 +1741,12 @@ def api_chart_data():
 
             FROM messages
 
-            WHERE status = ?
+            WHERE direction = ?
         """
 
         params = [
             group_format,
-            status
+            direction
         ]
 
         if extension_id:
@@ -1765,9 +1776,7 @@ def api_chart_data():
         if date_from:
 
             query += """
-                AND date(
-                    creation_time
-                ) >= date(?)
+                AND datetime(creation_time) >= datetime(?)
             """
 
             params.append(
@@ -1777,9 +1786,7 @@ def api_chart_data():
         if date_to:
 
             query += """
-                AND date(
-                    creation_time
-                ) <= date(?)
+                AND datetime(creation_time) < datetime(?)
             """
 
             params.append(
@@ -1807,11 +1814,11 @@ def api_chart_data():
         ).fetchall()
 
     sent_rows = load_chart_data(
-        "sent"
+        "Outbound"
     )
 
     received_rows = load_chart_data(
-        "received"
+        "Inbound"
     )
 
     conn.close()
@@ -1832,11 +1839,12 @@ def api_chart_data():
             row["time_slot"]
         ] = row["count"]
 
-    all_slots = sorted(
-        set(sent_data.keys())
-        |
-        set(received_data.keys())
-    )
+    all_slots = [
+        (current_hour - timedelta(hours=23 - index)).strftime(
+            "%Y-%m-%d %H:00"
+        )
+        for index in range(24)
+    ]
 
     return jsonify({
 
@@ -1960,6 +1968,11 @@ def api_extension_messages(
         "dateTo"
     )
 
+    date_from_utc, date_to_utc = extension_date_bounds(
+        date_from,
+        date_to
+    )
+
     conditions = [
         "extension_id = ?"
     ]
@@ -1995,21 +2008,21 @@ def api_extension_messages(
     if date_from:
 
         conditions.append(
-            "date(creation_time) >= date(?)"
+            "datetime(creation_time) >= datetime(?)"
         )
 
         params.append(
-            date_from
+            date_from_utc
         )
 
     if date_to:
 
         conditions.append(
-            "date(creation_time) <= date(?)"
+            "datetime(creation_time) < datetime(?)"
         )
 
         params.append(
-            date_to
+            date_to_utc
         )
 
     where_sql = " AND ".join(

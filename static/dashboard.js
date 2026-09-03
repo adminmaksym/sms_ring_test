@@ -26,6 +26,13 @@ let extensionMessagesView = false;
 
 let currentInlineMessageContact = "";
 
+const exportClockValues = {
+    from: { hour: null, minute: null, meridiem: null, mode: "hour" },
+    to: { hour: null, minute: null, meridiem: null, mode: "hour" }
+};
+
+let gamblingAnimation = null;
+
 
 // ======================================================
 // START
@@ -291,6 +298,14 @@ function selectExtension(
             "active"
         );
 
+    document
+        .getElementById(
+            "exportButton"
+        )
+        .classList.remove(
+            "active"
+        );
+
 
     const extension =
         getExtension(
@@ -374,6 +389,14 @@ function showOverview() {
             "overviewButton"
         )
         .classList.add(
+            "active"
+        );
+
+    document
+        .getElementById(
+            "exportButton"
+        )
+        .classList.remove(
             "active"
         );
 
@@ -1619,10 +1642,10 @@ function drawChart(
 
     }
 
-    const padding = 50;
+    const padding = 55;
     const width =
         ctx.canvas.width - 
-        padding * 2;
+        padding - 25;
     const height =
         ctx.canvas.height - 
         padding * 2;
@@ -1639,14 +1662,10 @@ function drawChart(
             Math.max(...allValues)
         );
 
-    const numBars =
+    const numPoints =
         labels.length;
 
-    const spacing =
-        width / numBars;
-
-    const barWidth =
-        spacing * 0.35;
+    const spacing = width / Math.max(1, numPoints - 1);
 
     // Clear canvas
     ctx.fillStyle = "white";
@@ -1700,64 +1719,46 @@ function drawChart(
     );
     ctx.stroke();
 
-    // Draw sent bars (blue)
-    ctx.fillStyle = "#3b82f6";
+    // Draw count labels on the vertical axis.
+    ctx.fillStyle = "#6b7280";
+    ctx.font = "11px Arial";
+    ctx.textAlign = "right";
+    for (let tick = 0; tick <= 5; tick++) {
+        const value = Math.round((maxValue / 5) * (5 - tick));
+        const y = padding + (height / 5) * tick;
+        ctx.fillText(String(value), padding - 10, y + 4);
+    }
 
-    sentData.forEach(
-        (value, index) => {
+    function drawLine(data, color) {
+        ctx.strokeStyle = color;
+        ctx.fillStyle = color;
+        ctx.lineWidth = 3;
+        ctx.lineJoin = "round";
+        ctx.lineCap = "round";
+        ctx.beginPath();
 
-            const barHeight =
-                (value / maxValue) * 
-                height;
+        data.forEach((value, index) => {
+            const x = padding + spacing * index;
+            const y = ctx.canvas.height - padding - (value / maxValue) * height;
+            if (index === 0) {
+                ctx.moveTo(x, y);
+            } else {
+                ctx.lineTo(x, y);
+            }
+        });
 
-            const x =
-                padding + 
-                (spacing * index) + 
-                (spacing / 2) - 
-                barWidth;
+        ctx.stroke();
+        data.forEach((value, index) => {
+            const x = padding + spacing * index;
+            const y = ctx.canvas.height - padding - (value / maxValue) * height;
+            ctx.beginPath();
+            ctx.arc(x, y, 4, 0, Math.PI * 2);
+            ctx.fill();
+        });
+    }
 
-            const y =
-                ctx.canvas.height - 
-                padding - 
-                barHeight;
-
-            ctx.fillRect(
-                x, y, 
-                barWidth, 
-                barHeight
-            );
-
-        }
-    );
-
-    // Draw received bars (green)
-    ctx.fillStyle = "#10b981";
-
-    receivedData.forEach(
-        (value, index) => {
-
-            const barHeight =
-                (value / maxValue) * 
-                height;
-
-            const x =
-                padding + 
-                (spacing * index) + 
-                (spacing / 2);
-
-            const y =
-                ctx.canvas.height - 
-                padding - 
-                barHeight;
-
-            ctx.fillRect(
-                x, y, 
-                barWidth, 
-                barHeight
-            );
-
-        }
-    );
+    drawLine(sentData, "#3b82f6");
+    drawLine(receivedData, "#10b981");
 
     // Draw labels
     ctx.fillStyle = "#6b7280";
@@ -1784,7 +1785,7 @@ function drawChart(
                 ctx.canvas.height - 
                 padding + 25;
 
-            ctx.fillText(label, x, y);
+            ctx.fillText(label.slice(11, 13), x, y);
 
         }
     );
@@ -1825,6 +1826,47 @@ function drawChart(
         legendX + 118,
         legendY + 10
     );
+
+    const chartContainer = ctx.canvas.parentElement;
+    let tooltip = chartContainer.querySelector(".chart-tooltip");
+
+    if (!tooltip) {
+        tooltip = document.createElement("div");
+        tooltip.className = "chart-tooltip";
+        chartContainer.appendChild(tooltip);
+    }
+
+    ctx.canvas.onmousemove = event => {
+        const bounds = ctx.canvas.getBoundingClientRect();
+        const scaleX = ctx.canvas.width / bounds.width;
+        const scaleY = ctx.canvas.height / bounds.height;
+        const mouseX = (event.clientX - bounds.left) * scaleX;
+        const mouseY = (event.clientY - bounds.top) * scaleY;
+        const index = Math.max(0, Math.min(
+            numPoints - 1,
+            Math.round((mouseX - padding) / spacing)
+        ));
+        const pointX = padding + spacing * index;
+        const nearPoint = Math.abs(mouseX - pointX) <= 28;
+
+        if (!nearPoint) {
+            tooltip.classList.remove("visible");
+            return;
+        }
+
+        tooltip.innerHTML = `
+            <strong>${escapeHtml(labels[index])}</strong>
+            <span class="tooltip-sent">Sent: ${sentData[index]} SMS</span>
+            <span class="tooltip-received">Received: ${receivedData[index]} SMS</span>
+        `;
+        tooltip.style.left = `${(event.clientX - bounds.left) / (bounds.width / chartContainer.clientWidth) + 12}px`;
+        tooltip.style.top = `${(event.clientY - bounds.top) / (bounds.height / chartContainer.clientHeight) + 12}px`;
+        tooltip.classList.add("visible");
+    };
+
+    ctx.canvas.onmouseleave = () => {
+        tooltip.classList.remove("visible");
+    };
 
 }
 
@@ -2788,6 +2830,9 @@ function escapeHtml(
 
 function showExportPanel() {
 
+    exportClockValues.from = { hour: null, minute: null, meridiem: null, mode: "hour" };
+    exportClockValues.to = { hour: null, minute: null, meridiem: null, mode: "hour" };
+
     currentExtensionId =
         null;
 
@@ -2810,6 +2855,14 @@ function showExportPanel() {
             "overviewButton"
         )
         .classList.remove(
+            "active"
+        );
+
+    document
+        .getElementById(
+            "exportButton"
+        )
+        .classList.add(
             "active"
         );
 
@@ -2873,29 +2926,37 @@ function showExportPanel() {
 
                     <div class="date-group">
 
-                        <label for="exportDateFrom">
+                        <label for="exportDateFromDate">
                             From:
                         </label>
 
                         <input
-                            type="datetime-local"
-                            id="exportDateFrom"
+                            type="date"
+                            id="exportDateFromDate"
                             class="date-input"
+                            onchange="updateExportDateTime('from')"
                         />
+
+                        <div id="exportClockFrom" class="analog-clock-picker"></div>
+                        <input type="hidden" id="exportDateFrom" />
 
                     </div>
 
                     <div class="date-group">
 
-                        <label for="exportDateTo">
+                        <label for="exportDateToDate">
                             To:
                         </label>
 
                         <input
-                            type="datetime-local"
-                            id="exportDateTo"
+                            type="date"
+                            id="exportDateToDate"
                             class="date-input"
+                            onchange="updateExportDateTime('to')"
                         />
+
+                        <div id="exportClockTo" class="analog-clock-picker"></div>
+                        <input type="hidden" id="exportDateTo" />
 
                     </div>
 
@@ -2926,7 +2987,118 @@ function showExportPanel() {
     `;
 
     renderExportExtensions();
+    renderAnalogClock("from");
+    renderAnalogClock("to");
 
+}
+
+
+function renderAnalogClock(which) {
+    const container = document.getElementById(
+        which === "from" ? "exportClockFrom" : "exportClockTo"
+    );
+    const state = exportClockValues[which];
+
+    if (!container) {
+        return;
+    }
+
+    const isHourMode = state.mode === "hour";
+    const values = isHourMode
+        ? Array.from({ length: 12 }, (_, index) => index + 1)
+        : Array.from({ length: 12 }, (_, index) => index * 5);
+
+    container.innerHTML = `
+        <div class="analog-clock-header">
+            <span>${isHourMode ? "Choose hour" : "Choose minutes"}</span>
+            <div class="clock-time-controls">
+                <strong>${formatExportClockTime(state)}</strong>
+                <button type="button" class="clock-period${state.meridiem === "AM" ? " selected" : ""}" onclick="selectExportPeriod('${which}', 'AM')">AM</button>
+                <button type="button" class="clock-period${state.meridiem === "PM" ? " selected" : ""}" onclick="selectExportPeriod('${which}', 'PM')">PM</button>
+            </div>
+        </div>
+        <div class="analog-clock-face">
+            <div class="clock-center"></div>
+            <div class="clock-hand hour-hand" style="transform: rotate(${getClockHandAngle(state.hour, 12)}deg);"></div>
+            <div class="clock-hand minute-hand" style="transform: rotate(${getClockHandAngle(state.minute, 60)}deg);"></div>
+            ${values.map((value, index) => {
+                const angle = index * 30;
+                const label = isHourMode ? value : String(value).padStart(2, "0");
+                const selected = isHourMode
+                    ? state.hour === value
+                    : state.minute === value;
+                return `<button type="button" class="clock-number${selected ? " selected" : ""}" style="--angle:${angle}deg" onclick="selectExportClockValue('${which}', ${value})">${label}</button>`;
+            }).join("")}
+        </div>
+        <button type="button" class="clock-clear" onclick="clearExportClock('${which}')">Clear time</button>
+    `;
+}
+
+
+function getClockHandAngle(value, divisor) {
+    return value === null ? 0 : (value / divisor) * 360;
+}
+
+
+function formatExportClockTime(state) {
+    if (state.hour === null || state.minute === null) {
+        return "--:--";
+    }
+    return `${String(state.hour).padStart(2, "0")}:${String(state.minute).padStart(2, "0")} ${state.meridiem || "--"}`;
+}
+
+
+function selectExportClockValue(which, value) {
+    const state = exportClockValues[which];
+
+    if (state.mode === "hour") {
+        state.hour = value;
+        state.mode = "minute";
+    } else {
+        state.minute = value;
+        state.mode = "hour";
+    }
+
+    updateExportDateTime(which);
+    renderAnalogClock(which);
+}
+
+
+function clearExportClock(which) {
+    exportClockValues[which] = { hour: null, minute: null, meridiem: null, mode: "hour" };
+    updateExportDateTime(which);
+    renderAnalogClock(which);
+}
+
+
+function selectExportPeriod(which, meridiem) {
+    exportClockValues[which].meridiem = meridiem;
+    updateExportDateTime(which);
+    renderAnalogClock(which);
+}
+
+
+function updateExportDateTime(which) {
+    const state = exportClockValues[which];
+    const dateInput = document.getElementById(
+        which === "from" ? "exportDateFromDate" : "exportDateToDate"
+    );
+    const hiddenInput = document.getElementById(
+        which === "from" ? "exportDateFrom" : "exportDateTo"
+    );
+
+    if (!dateInput || !hiddenInput || state.hour === null || state.minute === null || !state.meridiem) {
+        if (hiddenInput) {
+            hiddenInput.value = "";
+        }
+        return;
+    }
+
+    let hour = state.hour % 12;
+    if (state.meridiem === "PM") {
+        hour += 12;
+    }
+    hiddenInput.value = `${dateInput.value}T${String(hour).padStart(2, "0")}:${String(state.minute).padStart(2, "0")}`;
 }
 
 
@@ -3262,4 +3434,103 @@ async function performExport() {
 
     }
 
+}
+
+
+// ======================================================
+// GAMBLING SLOT MACHINE
+// ======================================================
+
+function showGamblingModal() {
+    closeGamblingModal();
+
+    const modal = document.createElement("div");
+    modal.id = "gamblingModal";
+    modal.className = "gambling-modal";
+    modal.innerHTML = `
+        <div class="gambling-window" role="dialog" aria-modal="true" aria-labelledby="gamblingTitle">
+            <button class="gambling-close" type="button" onclick="closeGamblingModal()" aria-label="Close">&times;</button>
+            <div class="gambling-kicker">Lucky break</div>
+            <h2 id="gamblingTitle">Безрукий поганец</h2>
+            <p class="gambling-subtitle">Полный демикс транспортейшн.</p>
+
+            <div class="slot-machine" aria-live="polite">
+                <div class="slot-topline"><span>SMS JACKPOT</span><span id="gamblingStatus">Ready to roll</span></div>
+                <div class="slot-stage">
+                    <div class="slot-reels">
+                        <div class="slot-reel"><span id="slotOne">7</span></div>
+                        <div class="slot-reel"><span id="slotTwo">★</span></div>
+                        <div class="slot-reel"><span id="slotThree">7</span></div>
+                    </div>
+                    <button class="slot-lever" type="button" onclick="startGambling()" aria-label="Pull slot machine lever">
+                        <span class="lever-arm"><span class="lever-ball"></span></span>
+                    </button>
+                </div>
+                <div class="slot-payline"></div>
+                <div class="slot-bottomline">GOOD LUCK, HAVE FUN</div>
+            </div>
+        </div>
+    `;
+
+    document.body.appendChild(modal);
+    modal.addEventListener("click", event => {
+        if (event.target === modal) {
+            closeGamblingModal();
+        }
+    });
+}
+
+
+function startGambling() {
+    const status = document.getElementById("gamblingStatus");
+    const reels = ["slotOne", "slotTwo", "slotThree"];
+    const symbols = ["7", "★", "♦", "BAR", "🍒", "☘"];
+
+    if (!status) {
+        return;
+    }
+
+    window.cancelAnimationFrame(gamblingAnimation);
+    const lever = document.querySelector(".slot-lever");
+    if (lever) {
+        lever.classList.remove("pulled");
+        void lever.offsetWidth;
+        lever.classList.add("pulled");
+    }
+    status.textContent = "Reels rolling...";
+    document.querySelectorAll(".slot-reel").forEach(reel => reel.classList.add("rolling"));
+    const startedAt = Date.now();
+    const roll = () => {
+        reels.forEach((id, index) => {
+            const element = document.getElementById(id);
+            if (element) {
+                element.textContent = symbols[Math.floor(Math.random() * symbols.length)];
+                element.style.transform = `translateY(${Math.sin(Date.now() / 50 + index) * 5}px)`;
+            }
+        });
+
+        if (Date.now() - startedAt < 2600) {
+            gamblingAnimation = window.requestAnimationFrame(roll);
+            return;
+        }
+
+        document.querySelectorAll(".slot-reel").forEach(reel => reel.classList.remove("rolling"));
+        reels.forEach(id => {
+            const element = document.getElementById(id);
+            if (element) {
+                element.style.transform = "";
+            }
+        });
+        status.textContent = "The house says: enjoy the spin";
+    };
+    roll();
+}
+
+
+function closeGamblingModal() {
+    window.cancelAnimationFrame(gamblingAnimation);
+    const modal = document.getElementById("gamblingModal");
+    if (modal) {
+        modal.remove();
+    }
 }
