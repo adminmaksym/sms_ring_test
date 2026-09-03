@@ -2867,18 +2867,18 @@ function showExportPanel() {
 
             <div class="export-section">
 
-                <h2>Date Range (Optional)</h2>
+                <h2>Date and Time Range (Kyiv time, optional)</h2>
 
                 <div class="date-inputs">
 
                     <div class="date-group">
 
                         <label for="exportDateFrom">
-                            From Date:
+                            From:
                         </label>
 
                         <input
-                            type="date"
+                            type="datetime-local"
                             id="exportDateFrom"
                             class="date-input"
                         />
@@ -2888,11 +2888,11 @@ function showExportPanel() {
                     <div class="date-group">
 
                         <label for="exportDateTo">
-                            To Date:
+                            To:
                         </label>
 
                         <input
-                            type="date"
+                            type="datetime-local"
                             id="exportDateTo"
                             class="date-input"
                         />

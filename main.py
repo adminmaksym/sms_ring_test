@@ -1,4 +1,5 @@
 import os
+import builtins
 import math
 import time
 import sqlite3
@@ -7,6 +8,7 @@ import threading
 import requests
 
 from datetime import datetime, timezone, timedelta
+from zoneinfo import ZoneInfo
 
 from dotenv import load_dotenv
 
@@ -63,7 +65,7 @@ JWT = os.getenv(
 SYNC_ENABLED = (
     os.getenv(
         "SYNC_ENABLED",
-        "1"
+        "0"
     ).strip().lower()
     not in (
         "0",
@@ -91,6 +93,33 @@ SYNC_PER_PAGE = 100
 # =========================================================
 
 app = Flask(__name__)
+
+
+def print(*values, **kwargs):
+    builtins.print(
+        datetime.now().astimezone().strftime(
+            "[%Y-%m-%d %H:%M:%S %z]"
+        ),
+        *values,
+        **kwargs
+    )
+
+
+def export_filter_value(value):
+    if not value:
+        return None
+
+    if len(value) == 10:
+        return value
+
+    parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(
+            tzinfo=ZoneInfo("Europe/Kyiv")
+        )
+
+    return parsed.astimezone(timezone.utc).isoformat()
 
 
 # =========================================================
@@ -958,6 +987,21 @@ def dashboard():
     return render_template(
         "dashboard.html"
     )
+
+
+@app.route("/login")
+def login():
+
+    return render_template(
+        "login.html"
+    )
+
+
+# Enable this guard after a real authentication/session implementation exists.
+# @app.before_request
+# def require_login():
+#     if request.endpoint not in {"login", "static"} and not session.get("user"):
+#         return redirect(url_for("login"))
 
 
 # =========================================================
@@ -2185,6 +2229,9 @@ def api_export():
         date_to = data.get(
             "dateTo"
         )
+
+        date_from = export_filter_value(date_from)
+        date_to = export_filter_value(date_to)
 
         rows = (
             get_messages_by_extensions(

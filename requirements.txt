@@ -1,0 +1,5 @@
+Flask
+openpyxl
+python-dotenv
+requests
+tzdata

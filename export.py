@@ -1,7 +1,8 @@
 import os
 import sqlite3
-from datetime import datetime
+from datetime import datetime, timezone
 from io import BytesIO
+from zoneinfo import ZoneInfo
 
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment
@@ -9,6 +10,26 @@ from openpyxl.utils import get_column_letter
 
 
 DB_FILE = "sms_monitor.db"
+KYIV_TIMEZONE = ZoneInfo("Europe/Kyiv")
+
+
+def format_kyiv_time(value):
+    if not value:
+        return value
+
+    try:
+        parsed = datetime.fromisoformat(
+            str(value).replace("Z", "+00:00")
+        )
+    except ValueError:
+        return value
+
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+
+    return parsed.astimezone(KYIV_TIMEZONE).strftime(
+        "%Y-%m-%d %H:%M:%S %Z"
+    )
 
 
 # =========================================================
@@ -127,10 +148,14 @@ def get_messages_by_extensions(
     # -----------------------------------------------------
 
     if date_from:
-
-        query += """
-            AND date(m.creation_time) >= date(?)
-        """
+        if "T" in date_from:
+            query += """
+                AND datetime(m.creation_time) >= datetime(?)
+            """
+        else:
+            query += """
+                AND date(m.creation_time) >= date(?)
+            """
 
         params.append(date_from)
 
@@ -139,10 +164,14 @@ def get_messages_by_extensions(
     # -----------------------------------------------------
 
     if date_to:
-
-        query += """
-            AND date(m.creation_time) <= date(?)
-        """
+        if "T" in date_to:
+            query += """
+                AND datetime(m.creation_time) <= datetime(?)
+            """
+        else:
+            query += """
+                AND date(m.creation_time) <= date(?)
+            """
 
         params.append(date_to)
 
@@ -245,14 +274,14 @@ def generate_excel_from_messages(
         values = [
             row["extension_number"],
             row["extension_name"],
-            row["creation_time"],
+            format_kyiv_time(row["creation_time"]),
             row["direction"],
             row["from_number"],
             row["to_number"],
             row["status"],
             row["message"],
-            row["delivery_time"],
-            row["last_updated"],
+            format_kyiv_time(row["delivery_time"]),
+            format_kyiv_time(row["last_updated"]),
             row["ringcentral_id"]
         ]
 
