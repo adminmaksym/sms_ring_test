@@ -2,7 +2,6 @@
 <html lang="en">
 
 <head>
-
     <meta charset="UTF-8">
 
     <meta
@@ -16,7 +15,6 @@
         rel="stylesheet"
         href="{{ url_for('static', filename='style.css') }}"
     >
-
 </head>
 
 
@@ -24,30 +22,63 @@
 
 <div class="app">
 
-    <!-- ========================================= -->
-    <!-- SIDEBAR -->
-    <!-- ========================================= -->
+    <!-- =====================================================
+         SIDEBAR
+         ===================================================== -->
 
     <aside class="sidebar">
 
+        <!-- LOGO -->
+
         <div class="logo">
-            SMS Monitor
+            <span style="
+                display:inline-flex;
+                width:34px;
+                height:34px;
+                align-items:center;
+                justify-content:center;
+                margin-right:9px;
+                border-radius:10px;
+                background:rgba(99,102,241,.18);
+                font-size:17px;
+                vertical-align:middle;
+            ">💬</span>
+
+            <span style="vertical-align:middle;">
+                SMS Monitor
+            </span>
         </div>
 
 
-        <button
-            id="overviewButton"
-            class="nav-button active"
-            onclick="showOverview()"
-        >
+        <!-- NAVIGATION -->
 
-            📊 Overview
+        <nav>
 
-        </button>
+            <button
+                id="overviewButton"
+                class="nav-button active"
+                onclick="showOverview()"
+            >
+                <span style="margin-right:8px;">📊</span>
+                Overview
+            </button>
 
+
+            <button
+                class="nav-button"
+                onclick="showExportPanel()"
+            >
+                <span style="margin-right:8px;">📥</span>
+                Export to Excel
+            </button>
+
+        </nav>
+
+
+        <!-- EXTENSIONS -->
 
         <div class="section-title">
-            EXTENSIONS
+            Extensions
         </div>
 
 
@@ -62,12 +93,11 @@
     </aside>
 
 
-    <!-- ========================================= -->
-    <!-- MAIN -->
-    <!-- ========================================= -->
+    <!-- =====================================================
+         MAIN CONTENT
+         ===================================================== -->
 
     <main class="main">
-
 
         <!-- HEADER -->
 
@@ -87,14 +117,48 @@
             </div>
 
 
-            <button
-                class="refresh"
-                onclick="refreshCurrentView()"
-            >
+            <div style="
+                display:flex;
+                align-items:center;
+                gap:12px;
+            ">
 
-                🔄 Refresh
+                <div style="
+                    display:flex;
+                    align-items:center;
+                    gap:7px;
+                    padding:8px 11px;
+                    border-radius:9px;
+                    background:#ecfdf5;
+                    color:#059669;
+                    font-size:12px;
+                    font-weight:650;
+                ">
 
-            </button>
+                    <span style="
+                        width:7px;
+                        height:7px;
+                        border-radius:50%;
+                        background:#10b981;
+                        display:inline-block;
+                    "></span>
+
+                    Connected
+
+                </div>
+
+
+                <button
+                    class="refresh"
+                    onclick="refreshCurrentView()"
+                >
+
+                    🔄
+                    <span>Refresh</span>
+
+                </button>
+
+            </div>
 
         </header>
 
@@ -111,11 +175,14 @@
 
         </section>
 
-
     </main>
 
 </div>
 
+
+<!-- =====================================================
+     JAVASCRIPT
+     ===================================================== -->
 
 <script
     src="{{ url_for('static', filename='dashboard.js') }}"
